@@ -21,9 +21,10 @@ async function run() {
         await client.connect();
         const database = client.db("clear_pixel");
         const productCollection = database.collection("products");
-        const orderCollection = database.collection("order");
+        const orderCollection = database.collection("order1");
         const reviewCollection = database.collection("review");
         const userCollection = database.collection("user");
+        const cartCollection = database.collection("cart");
 
         // GET API 
         app.get('/products', async (req, res) => {
@@ -38,12 +39,20 @@ async function run() {
             res.send(result);
         })
 
-        app.get('/products/:id', async (req, res) => {
-            const id = req.params.id;
-            const query = { _id: ObjectId(id) };
-            const result = await productCollection.findOne(query);
+        // get cart products 
+        app.get('/addToCart/cart/:email', async (req, res) => {
+            const email = req.params.email;
+            const query = { email: email };
+            const cursor = cartCollection.find(query);
+            const result = await cursor.toArray();
             res.send(result);
         })
+        // app.get('/products/:id', async (req, res) => {
+        //     const id = req.params.id;
+        //     const query = { _id: ObjectId(id) };
+        //     const result = await productCollection.findOne(query);
+        //     res.send(result);
+        // })
 
         app.get('/user/:email', async (req, res) => {
             const email = req.params.email;
@@ -74,12 +83,18 @@ async function run() {
             res.send(result);
         })
 
+        // add orders from cart
+        app.post('/cartToOrders', async (req, res) => {
 
-
-        // Add Orders API
-        app.post('/orders', async (req, res) => {
-            const order = req.body;
+            order = req.body
             const result = await orderCollection.insertOne(order);
+            res.json(result);
+        })
+
+        // add to cart 
+        app.post('/addToCart', async (req, res) => {
+            const order = req.body;
+            const result = await cartCollection.insertOne(order);
             res.json(result);
         })
 
@@ -156,6 +171,23 @@ async function run() {
             const id = req.params.id;
             const query = { _id: ObjectId(id) };
             const result = await productCollection.deleteOne(query);
+            res.json(result);
+        })
+        // delete from cart 
+        app.delete('/cart/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: ObjectId(id) };
+            const result = await cartCollection.deleteOne(query);
+            res.json(result);
+        })
+
+        // clear cart by email
+        app.delete('/cartRemove/:email', async (req, res) => {
+            const email = req.params.email;
+            console.log(req.params.email);
+            const query = { email: email };
+            const result = await cartCollection.deleteMany(query);
+            console.log(result);
             res.json(result);
         })
 
