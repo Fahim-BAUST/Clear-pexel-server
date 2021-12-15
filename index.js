@@ -2,18 +2,43 @@ const express = require('express');
 const { MongoClient } = require('mongodb');
 const cors = require("cors");
 const ObjectId = require('mongodb').ObjectId;
-
+const admin = require("firebase-admin");
 require('dotenv').config()
 
-
+// clear-pixel-update-firebase-adminsdk.json
 
 const app = express();
 const port = process.env.PORT || 5000;
+
+const stripe = require("stripe")(process.env.STRIPE_SECRET);
+
+const serviceAccount = require("./clear-pixel-update-firebase-adminsdk.json");
+
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+});
 
 app.use(cors());
 app.use(express.json());
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.rbwav.mongodb.net/myFirstDatabase?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+
+async function verifyToken(req, res, next) {
+    if (req.headers?.authorization?.startsWith('Bearer ')) {
+        const token = req.headers?.authorization?.split(' ')[1];
+
+        try {
+            const decodedUser = await admin.auth().verifyIdToken(token);
+            req.decodedEmail = decodedUser.email
+
+        }
+        catch {
+
+        }
+    }
+    next();
+
+}
 
 async function run() {
     try {
@@ -67,10 +92,17 @@ async function run() {
         })
 
 
-
         app.get('/allOrders', async (req, res) => {
             const cursor = orderCollection.find({});
             const result = await cursor.toArray();
+            res.send(result);
+        })
+
+        //get particular order for payment
+        app.get('/allOrders/payment/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: ObjectId(id) };
+            const result = await orderCollection.findOne(query);
             res.send(result);
         })
 
@@ -131,13 +163,25 @@ async function run() {
             res.json(result)
         });
 
-        app.put('/user/admin', async (req, res) => {
+        app.put('/user/admin', verifyToken, async (req, res) => {
             const user = req.body;
-            const filter = { email: user.email };
-            updateDoc = { $set: { role: 'admin' } }
-            const result = await userCollection.updateOne(filter, updateDoc);
+            const requester = req.decodedEmail;
+            if (requester) {
+                const requesterAccount = await userCollection.findOne({ email: requester });
+                if (requesterAccount.role === 'admin') {
+                    const filter = { email: user.email };
+                    updateDoc = { $set: { role: 'admin' } }
+                    const result = await userCollection.updateOne(filter, updateDoc);
 
-            res.json(result)
+                    res.json(result)
+                }
+            } else {
+                req.json({ message: 'you dont have access to admin' })
+            }
+
+
+
+
         });
 
 
@@ -155,6 +199,22 @@ async function run() {
                 }
             };
             const result = await orderCollection.updateOne(filter, updateDoc, options);
+            res.json(result);
+
+        })
+
+
+        app.put('/allOrders/paymentStatus/:id', async (req, res) => {
+            const id = req.params.id;
+            const payment = req.body;
+            const filter = { _id: ObjectId(id) };
+
+            const updateDoc = {
+                $set: {
+                    payment: payment
+                }
+            };
+            const result = await orderCollection.updateOne(filter, updateDoc);
             res.json(result);
 
         })
@@ -190,6 +250,26 @@ async function run() {
             console.log(result);
             res.json(result);
         })
+
+
+        app.post("/create-payment-intent", async (req, res) => {
+            const paymentInfo = req.body;
+            console.log(paymentInfo);
+            const amount = paymentInfo.totalPrice * 100
+
+            // Create a PaymentIntent with the order amount and currency
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: amount,
+                currency: "usd",
+                automatic_payment_methods: {
+                    enabled: true,
+                },
+            });
+
+            res.send({
+                clientSecret: paymentIntent.client_secret,
+            });
+        });
 
     } finally {
         //   await client.close();
